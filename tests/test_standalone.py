@@ -23,6 +23,7 @@ from canary_matrix.standalone import (
     execute_target,
     render_public_bundle,
     validate_target_create_argv,
+    write_evidence_bundle,
     write_immutable_record,
 )
 
@@ -386,6 +387,60 @@ class TestStandaloneRunner(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 write_immutable_record(verified, path)
             self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+
+    def test_evidence_bundle_separates_protected_and_public_files(self):
+        baseline_attestation = self._attestation("baseline")
+        candidate_attestation = self._attestation("candidate")
+        baseline = execute_target(
+            self.contract,
+            "baseline",
+            baseline_attestation,
+            runner=FakeDockerRunner(self.contract, "baseline"),
+            run_nonce="decafbad01",
+        )
+        candidate = execute_target(
+            self.contract,
+            "candidate",
+            candidate_attestation,
+            runner=FakeDockerRunner(self.contract, "candidate"),
+            run_nonce="decafbad02",
+        )
+        pair = compare_standalone_runs(self.contract, baseline, candidate)
+        with tempfile.TemporaryDirectory(prefix="canary_bundle_parent_") as parent:
+            destination = Path(parent) / "bundle"
+            root = write_evidence_bundle(
+                self.contract,
+                baseline_attestation,
+                candidate_attestation,
+                baseline,
+                candidate,
+                pair,
+                destination,
+            )
+            manifest = json.loads((root / "manifest.json").read_text())
+            for relative, expected in manifest["files"].items():
+                path = root / relative
+                self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), expected)
+            self.assertEqual(
+                os.stat(root / "protected" / "baseline-record.json").st_mode & 0o777,
+                0o600,
+            )
+            self.assertEqual(
+                os.stat(root / "public" / "result.json").st_mode & 0o777,
+                0o444,
+            )
+            public = (root / "public" / "result.json").read_bytes()
+            self.assertNotIn(b"sample", public)
+            with self.assertRaisesRegex(IntegrityError, "must be absent"):
+                write_evidence_bundle(
+                    self.contract,
+                    baseline_attestation,
+                    candidate_attestation,
+                    baseline,
+                    candidate,
+                    pair,
+                    destination,
+                )
 
 
 if __name__ == "__main__":

@@ -10,10 +10,11 @@ the observation.
 from __future__ import annotations
 
 import base64
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 import hashlib
 import json
 import os
+from pathlib import Path
 import re
 import subprocess
 from typing import Callable, Mapping, Sequence
@@ -47,6 +48,7 @@ from .openbench_bridge import (
 
 RUN_RECORD_SCHEMA_VERSION = "canary-standalone-run/v0.1"
 PUBLIC_BUNDLE_SCHEMA_VERSION = "canary-standalone-public/v0.1"
+EVIDENCE_BUNDLE_SCHEMA_VERSION = "canary-evidence-bundle/v0.1"
 MAX_DOCKER_CONTROL_OUTPUT_BYTES = 1024 * 1024
 MAX_TARGET_OUTPUT_BYTES = 8 * 1024 * 1024
 MAX_TARGET_LINE_BYTES = 64 * 1024
@@ -1094,3 +1096,83 @@ def write_immutable_record(
         os.close(fd)
     if hashlib.sha256(payload).hexdigest() != verified.record_sha256:
         raise IntegrityError("immutable record digest mismatch after write")
+
+
+def _write_exclusive(path: Path, payload: bytes, mode: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags, mode)
+    try:
+        with os.fdopen(fd, "wb", closefd=False) as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+    finally:
+        os.close(fd)
+    os.chmod(path, mode)
+
+
+def write_evidence_bundle(
+    contract: Contract,
+    baseline_attestation: ImageAttestation,
+    candidate_attestation: ImageAttestation,
+    baseline: VerifiedStandaloneRun,
+    candidate: VerifiedStandaloneRun,
+    pair: PairResult,
+    destination: str | os.PathLike[str],
+) -> Path:
+    """Write protected evidence and an allowlisted public view atomically by file."""
+
+    verify_image_attestation(contract, "baseline", baseline_attestation)
+    verify_image_attestation(contract, "candidate", candidate_attestation)
+    verify_standalone_run(contract, baseline, expected_target_name="baseline")
+    verify_standalone_run(contract, candidate, expected_target_name="candidate")
+    expected_pair = compare_standalone_runs(contract, baseline, candidate)
+    if pair != expected_pair:
+        raise IntegrityError("evidence bundle pair result mismatch")
+    root = Path(destination)
+    if root.exists():
+        raise IntegrityError("evidence bundle destination must be absent")
+    root.mkdir(parents=True, mode=0o700)
+    os.chmod(root, 0o700)
+    protected = root / "protected"
+    public = root / "public"
+    protected.mkdir(mode=0o700)
+    public.mkdir(mode=0o700)
+
+    baseline_record = canonical_json_bytes(baseline.record)
+    candidate_record = canonical_json_bytes(candidate.record)
+    attestations = canonical_json_bytes(
+        {
+            "baseline": asdict(baseline_attestation),
+            "candidate": asdict(candidate_attestation),
+        }
+    )
+    public_json, public_markdown = render_public_bundle(
+        contract, baseline, candidate, pair
+    )
+    file_payloads = {
+        "protected/baseline-record.json": baseline_record,
+        "protected/candidate-record.json": candidate_record,
+        "protected/image-attestations.json": attestations,
+        "public/result.json": public_json,
+        "public/README.md": public_markdown,
+    }
+    for relative, payload in file_payloads.items():
+        mode = 0o600 if relative.startswith("protected/") else 0o444
+        _write_exclusive(root / relative, payload, mode)
+    manifest = {
+        "schema_version": EVIDENCE_BUNDLE_SCHEMA_VERSION,
+        "contract_id": contract.contract_id,
+        "contract_sha256": contract.raw_sha256,
+        "pair": pair_result_to_dict(pair),
+        "files": {
+            relative: hashlib.sha256(payload).hexdigest()
+            for relative, payload in sorted(file_payloads.items())
+        },
+    }
+    _write_exclusive(root / "manifest.json", canonical_json_bytes(manifest), 0o600)
+    for relative, expected in manifest["files"].items():
+        if hashlib.sha256((root / relative).read_bytes()).hexdigest() != expected:
+            raise IntegrityError("evidence bundle file digest mismatch: " + relative)
+    return root
