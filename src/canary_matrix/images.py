@@ -26,6 +26,11 @@ _IMAGE_DIGEST_RE = re.compile(r"^(?:[^\s@]+@)?sha256:[0-9a-f]{64}$")
 _NODE_VERSION_RE = re.compile(
     r"^v?([0-9]+)\.([0-9]+)\.([0-9]+)(?:[-+][A-Za-z0-9._-]+)?$"
 )
+_CODEX_WRAPPER_PATH = "/usr/local/lib/node_modules/@openai/codex/bin/codex.js"
+_CODEX_NATIVE_PATH = (
+    "/usr/local/lib/node_modules/@openai/codex-linux-arm64/"
+    "vendor/aarch64-unknown-linux-musl/bin/codex"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +59,9 @@ class ImageAttestation:
     arch: str
     image_family: str
     attestation_sha256: str
+    platform_package_integrity: str | None = None
+    wrapper_sha256: str | None = None
+    platform_binary_sha256: str | None = None
 
 
 def _write_bytes(path: Path, payload: bytes, mode: int = 0o644) -> None:
@@ -193,6 +201,9 @@ _LABEL_FIELDS = {
     "recipe_sha256": "recipe-sha256",
     "target_version": "target-version",
     "package_integrity": "package-integrity",
+    "platform_package_integrity": "platform-package-integrity",
+    "wrapper_sha256": "wrapper-sha256",
+    "platform_binary_sha256": "platform-binary-sha256",
     "node_version": "node-version",
     "os": "os-release",
     "arch": "architecture",
@@ -217,7 +228,69 @@ def render_image_build_plan(
         or not _IMAGE_DIGEST_RE.fullmatch(base_image_digest)
     ):
         raise IntegrityError("base image must be a registry reference pinned by SHA-256")
-    dockerfile = f'''FROM {base_image_digest}
+    if contract.probe_kind == "codex_trust_enter_39487":
+        if target.platform_npm_integrity is None:
+            raise IntegrityError("Codex image target has no platform package SRI")
+        dockerfile = f'''FROM {base_image_digest}
+
+ARG CANARY_TARGET_VERSION
+ARG CANARY_NPM_INTEGRITY
+ARG CANARY_PLATFORM_NPM_INTEGRITY
+ARG CANARY_WRAPPER_SHA256
+ARG CANARY_PLATFORM_BINARY_SHA256
+ARG CANARY_NODE_VERSION
+ARG CANARY_OS_RELEASE
+ARG CANARY_ARCH
+ARG CANARY_IMAGE_FAMILY
+ARG CANARY_CONTRACT_SHA256
+ARG CANARY_RECIPE_SHA256
+
+RUN set -eu; command -v node; command -v npm; command -v tar; command -v ln
+RUN set -eu; \
+    mkdir -p /tmp/canary-top /tmp/canary-platform; \
+    cd /tmp/canary-top; \
+    npm pack --json "@openai/codex@${{CANARY_TARGET_VERSION}}" > pack.json; \
+    cd /tmp/canary-platform; \
+    npm pack --json "@openai/codex@${{CANARY_TARGET_VERSION}}-linux-arm64" > pack.json; \
+    top_tarball="/tmp/canary-top/$(node -p 'require("/tmp/canary-top/pack.json")[0].filename')"; \
+    platform_tarball="/tmp/canary-platform/$(node -p 'require("/tmp/canary-platform/pack.json")[0].filename')"; \
+    node -e 'const fs=require("fs"),c=require("crypto"),[p,w]=process.argv.slice(1),g="sha512-"+c.createHash("sha512").update(fs.readFileSync(p)).digest("base64");if(g!==w){{console.error("top-level npm SRI mismatch");process.exit(72)}}' "${{top_tarball}}" "${{CANARY_NPM_INTEGRITY}}"; \
+    node -e 'const fs=require("fs"),c=require("crypto"),[p,w]=process.argv.slice(1),g="sha512-"+c.createHash("sha512").update(fs.readFileSync(p)).digest("base64");if(g!==w){{console.error("platform npm SRI mismatch");process.exit(73)}}' "${{platform_tarball}}" "${{CANARY_PLATFORM_NPM_INTEGRITY}}"; \
+    mkdir -p /usr/local/lib/node_modules/@openai/codex /usr/local/lib/node_modules/@openai/codex-linux-arm64; \
+    tar -xzf "${{top_tarball}}" -C /usr/local/lib/node_modules/@openai/codex --strip-components=1 --no-same-owner --no-same-permissions; \
+    tar -xzf "${{platform_tarball}}" -C /usr/local/lib/node_modules/@openai/codex-linux-arm64 --strip-components=1 --no-same-owner --no-same-permissions; \
+    node -e 'const fs=require("fs"),[v]=process.argv.slice(1),t=JSON.parse(fs.readFileSync("/usr/local/lib/node_modules/@openai/codex/package.json")),p=JSON.parse(fs.readFileSync("/usr/local/lib/node_modules/@openai/codex-linux-arm64/package.json"));if(t.name!=="@openai/codex"||t.version!==v||p.name!=="@openai/codex"||p.version!==v+"-linux-arm64")process.exit(74)' "${{CANARY_TARGET_VERSION}}"; \
+    test -f /usr/local/lib/node_modules/@openai/codex/bin/codex.js; \
+    test ! -L /usr/local/lib/node_modules/@openai/codex/bin/codex.js; \
+    test -f /usr/local/lib/node_modules/@openai/codex-linux-arm64/vendor/aarch64-unknown-linux-musl/bin/codex; \
+    test ! -L /usr/local/lib/node_modules/@openai/codex-linux-arm64/vendor/aarch64-unknown-linux-musl/bin/codex; \
+    test -x /usr/local/lib/node_modules/@openai/codex-linux-arm64/vendor/aarch64-unknown-linux-musl/bin/codex; \
+    node -e 'const fs=require("fs"),c=require("crypto"),[p,w]=process.argv.slice(1),g=c.createHash("sha256").update(fs.readFileSync(p)).digest("hex");if(g!==w){{console.error("wrapper SHA-256 mismatch");process.exit(75)}}' /usr/local/lib/node_modules/@openai/codex/bin/codex.js "${{CANARY_WRAPPER_SHA256}}"; \
+    node -e 'const fs=require("fs"),c=require("crypto"),[p,w]=process.argv.slice(1),g=c.createHash("sha256").update(fs.readFileSync(p)).digest("hex");if(g!==w){{console.error("platform binary SHA-256 mismatch");process.exit(76)}}' /usr/local/lib/node_modules/@openai/codex-linux-arm64/vendor/aarch64-unknown-linux-musl/bin/codex "${{CANARY_PLATFORM_BINARY_SHA256}}"; \
+    ln -s /usr/local/lib/node_modules/@openai/codex/bin/codex.js /usr/local/bin/codex; \
+    rm -rf /tmp/canary-top /tmp/canary-platform
+RUN set -eu; \
+    node -e 'const fs=require("fs"),v={{package:"@openai/codex",platform_alias:"@openai/codex-linux-arm64",version:process.env.CANARY_TARGET_VERSION}};fs.writeFileSync("/etc/canary-matrix-target.json",JSON.stringify(v)+"\\n")'; \
+    codex --version; node --version
+
+LABEL {_label("base_image_digest")}="{base_image_digest}" \
+      {_label("recipe_sha256")}="${{CANARY_RECIPE_SHA256}}" \
+      {_label("target_version")}="${{CANARY_TARGET_VERSION}}" \
+      {_label("package_integrity")}="${{CANARY_NPM_INTEGRITY}}" \
+      {_label("platform_package_integrity")}="${{CANARY_PLATFORM_NPM_INTEGRITY}}" \
+      {_label("wrapper_sha256")}="${{CANARY_WRAPPER_SHA256}}" \
+      {_label("platform_binary_sha256")}="${{CANARY_PLATFORM_BINARY_SHA256}}" \
+      {_label("node_version")}="${{CANARY_NODE_VERSION}}" \
+      {_label("os")}="${{CANARY_OS_RELEASE}}" \
+      {_label("arch")}="${{CANARY_ARCH}}" \
+      {_label("image_family")}="${{CANARY_IMAGE_FAMILY}}" \
+      {_label("contract_sha256")}="${{CANARY_CONTRACT_SHA256}}"
+
+ENTRYPOINT []
+CMD []
+'''.encode("utf-8")
+    else:
+        dockerfile = f'''FROM {base_image_digest}
 
 ARG CANARY_TARGET_VERSION
 ARG CANARY_NPM_INTEGRITY
@@ -265,6 +338,15 @@ CMD ["gemini", "--version"]
             "CANARY_RECIPE_SHA256": recipe_sha256,
         }
     )
+    if target.platform_npm_integrity is not None:
+        build_args = canonical_items(
+            {
+                **dict(build_args),
+                "CANARY_PLATFORM_NPM_INTEGRITY": target.platform_npm_integrity,
+                "CANARY_WRAPPER_SHA256": target.wrapper_sha256,
+                "CANARY_PLATFORM_BINARY_SHA256": target.platform_binary_sha256,
+            }
+        )
     return ImageBuildPlan(
         target_name=target_name,
         image_tag=target.image_tag,
@@ -328,12 +410,17 @@ def build_target_image(
 
 
 def _secure_probe_argv(
-    image_digest: str, executable: str, *arguments: str
+    image_digest: str,
+    executable: str,
+    *arguments: str,
+    extra_environment: Sequence[str] = (),
 ) -> list[str]:
     if not _IMAGE_DIGEST_RE.fullmatch(image_digest):
         raise IntegrityError("image probe requires an immutable image digest")
-    if executable not in {"gemini", "node", "cat"}:
+    if executable not in {"gemini", "codex", "node", "cat", _CODEX_NATIVE_PATH}:
         raise IntegrityError("image probe executable is not trusted")
+    if any(item not in {"CODEX_HOME=/tmp/codex-home"} for item in extra_environment):
+        raise IntegrityError("image probe environment is not trusted")
     return [
         "docker",
         "run",
@@ -357,6 +444,7 @@ def _secure_probe_argv(
         "/tmp:rw,noexec,nosuid,nodev,size=16m",
         "--env",
         "HOME=/tmp",
+        *[item for value in extra_environment for item in ("--env", value)],
         "--entrypoint",
         executable,
         image_digest,
@@ -385,7 +473,7 @@ def _parse_os_release(text: str) -> str:
 
 
 def _attestation_payload(attestation: ImageAttestation) -> dict[str, str]:
-    return {
+    payload = {
         "target_name": attestation.target_name,
         "contract_sha256": attestation.contract_sha256,
         "image_reference": attestation.image_reference,
@@ -400,6 +488,15 @@ def _attestation_payload(attestation: ImageAttestation) -> dict[str, str]:
         "arch": attestation.arch,
         "image_family": attestation.image_family,
     }
+    if attestation.platform_package_integrity is not None:
+        payload["platform_package_integrity"] = (
+            attestation.platform_package_integrity
+        )
+    if attestation.wrapper_sha256 is not None:
+        payload["wrapper_sha256"] = attestation.wrapper_sha256
+    if attestation.platform_binary_sha256 is not None:
+        payload["platform_binary_sha256"] = attestation.platform_binary_sha256
+    return payload
 
 
 def verify_image_attestation(
@@ -416,6 +513,19 @@ def verify_image_attestation(
         "arch": target.arch,
         "image_family": target.image_family,
     }
+    if target.platform_npm_integrity is not None:
+        expected["platform_package_integrity"] = target.platform_npm_integrity
+        expected["wrapper_sha256"] = target.wrapper_sha256
+        expected["platform_binary_sha256"] = target.platform_binary_sha256
+    elif attestation.platform_package_integrity is not None:
+        raise IntegrityError(
+            "image attestation has an unexpected platform package integrity"
+        )
+    elif (
+        attestation.wrapper_sha256 is not None
+        or attestation.platform_binary_sha256 is not None
+    ):
+        raise IntegrityError("image attestation has unexpected execution-path hashes")
     payload = _attestation_payload(attestation)
     mismatched = sorted(key for key, value in expected.items() if payload.get(key) != value)
     if mismatched:
@@ -494,11 +604,33 @@ def attest_image(
         _label("image_family"): target.image_family,
         _label("contract_sha256"): contract.raw_sha256,
     }
+    if target.platform_npm_integrity is not None:
+        expected_labels[_label("platform_package_integrity")] = (
+            target.platform_npm_integrity
+        )
+        expected_labels[_label("wrapper_sha256")] = str(target.wrapper_sha256)
+        expected_labels[_label("platform_binary_sha256")] = str(
+            target.platform_binary_sha256
+        )
     if any(labels.get(key) != value for key, value in expected_labels.items()):
         raise IntegrityError("Docker image labels do not match the trusted build plan")
 
+    executable = str(contract.probe["version_argv"][0])
+    version_arguments = tuple(
+        str(item) for item in contract.probe["version_argv"][1:]
+    )
+    codex_environment = (
+        ("CODEX_HOME=/tmp/codex-home",)
+        if contract.probe_kind == "codex_trust_enter_39487"
+        else ()
+    )
     version_probe = runner(
-        _secure_probe_argv(image_id, "gemini", "--version"),
+        _secure_probe_argv(
+            image_id,
+            executable,
+            *version_arguments,
+            extra_environment=codex_environment,
+        ),
         timeout=15,
         max_output_bytes=64 * 1024,
     )
@@ -507,6 +639,53 @@ def attest_image(
         rf"(?<![0-9]){re.escape(target.version)}(?![0-9])", version_text
     ):
         raise IntegrityError("image CLI version does not match the target")
+    if contract.probe_kind == "codex_trust_enter_39487":
+        origin_script = (
+            'const fs=require("fs"),c=require("crypto"),top="/usr/local/lib/node_modules/@openai/'
+            'codex/bin/codex.js",root="/usr/local/lib/node_modules/@openai/'
+            'codex",alias="/usr/local/lib/node_modules/@openai/codex-linux-arm64/'
+            'package.json",bin="/usr/local/lib/node_modules/@openai/'
+            'codex-linux-arm64/vendor/aarch64-unknown-linux-musl/bin/codex";'
+            'const [expectedTop,expectedBin]=process.argv.slice(1);'
+            'const resolved=require.resolve("@openai/codex-linux-arm64/package.json",'
+            '{paths:[root]});const st=fs.statSync(bin),hash=p=>c.createHash("sha256").update(fs.readFileSync(p)).digest("hex"),topHash=hash(top),binHash=hash(bin);if(fs.realpathSync("/usr/local/'
+            'bin/codex")!==top||fs.realpathSync(resolved)!==alias||!st.isFile()||'
+            '(st.mode&0o111)===0||topHash!==expectedTop||binHash!==expectedBin)process.exit(77);process.stdout.write(JSON.stringify({wrapper_sha256:topHash,platform_binary_sha256:binHash})+"\\n")'
+        )
+        origin_probe = runner(
+            _secure_probe_argv(
+                image_id,
+                "node",
+                "-e",
+                origin_script,
+                str(target.wrapper_sha256),
+                str(target.platform_binary_sha256),
+            ),
+            timeout=15,
+            max_output_bytes=64 * 1024,
+        )
+        try:
+            origin_value = json.loads(origin_probe.stdout)
+        except json.JSONDecodeError as exc:
+            raise IntegrityError("image Codex platform origin probe failed") from exc
+        if origin_probe.returncode != 0 or origin_value != {
+            "wrapper_sha256": target.wrapper_sha256,
+            "platform_binary_sha256": target.platform_binary_sha256,
+        }:
+            raise IntegrityError("image Codex platform origin probe failed")
+        native_version_probe = runner(
+            _secure_probe_argv(image_id, _CODEX_NATIVE_PATH, "--version"),
+            timeout=15,
+            max_output_bytes=64 * 1024,
+        )
+        native_version_text = (
+            native_version_probe.stdout + "\n" + native_version_probe.stderr
+        ).strip()
+        if native_version_probe.returncode != 0 or not re.search(
+            rf"(?<![0-9]){re.escape(target.version)}(?![0-9])",
+            native_version_text,
+        ):
+            raise IntegrityError("image native Codex version does not match the target")
     node_probe = runner(
         _secure_probe_argv(image_id, "node", "--version"),
         timeout=15,
@@ -548,6 +727,9 @@ def attest_image(
         arch=str(record["Architecture"]),
         image_family=target.image_family,
         attestation_sha256="",
+        platform_package_integrity=target.platform_npm_integrity,
+        wrapper_sha256=target.wrapper_sha256,
+        platform_binary_sha256=target.platform_binary_sha256,
     )
     attestation = ImageAttestation(
         **_attestation_payload(provisional),

@@ -60,7 +60,8 @@ jobs:
             "$environment/venv/bin/python" -m pip check
             mkdir -p "$environment/work"
             cd "$environment/work"
-            "$environment/venv/bin/canary-matrix" version
+            test "$("$environment/venv/bin/canary-matrix" version)" = "0.2.0"
             "$environment/venv/bin/python" -c 'from canary_matrix.cli import resolve_contract; from canary_matrix.contract import load_contract; print(load_contract(resolve_contract()).contract_id)'
+            "$environment/venv/bin/python" -c 'from pathlib import Path; import sysconfig; from canary_matrix.contract import load_contract; root = Path(sysconfig.get_path("data")) / "share" / "canary-matrix" / "contracts"; assert load_contract(root / "codex-trust-enter-39487.toml").contract_id == "codex-trust-enter-39487"'
             cd "$repository"
           done

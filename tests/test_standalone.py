@@ -446,6 +446,12 @@ class TestStandaloneRunner(unittest.TestCase):
             )
             public = (root / "public" / "result.json").read_bytes()
             self.assertNotIn(b"sample", public)
+            protected_attestations = json.loads(
+                (root / "protected" / "image-attestations.json").read_text()
+            )
+            self.assertNotIn(
+                "platform_package_integrity", protected_attestations["baseline"]
+            )
             with self.assertRaisesRegex(IntegrityError, "must be absent"):
                 write_evidence_bundle(
                     self.contract,

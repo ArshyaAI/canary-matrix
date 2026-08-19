@@ -2,6 +2,25 @@
 
 All notable changes to Canary Matrix will be documented here.
 
+## [0.2.0] - 2026-08-19
+
+### Added
+
+- Added a second tracked contract, `contracts/codex-trust-enter-39487.toml`, for official Codex issue [#39487](https://github.com/openai/codex/issues/39487).
+- Added a fixed 80x30 PTY execution lane with zero-delay input at the first proven rendered marker.
+- Added local evidence comparing `@openai/codex` `0.147.0` (pass) with `0.148.0` (fail): `observed_difference` at claim tier `deterministic_cli_delta`, with no mismatched controls.
+
+### Changed
+
+- Bumped package version from `0.1.0` to `0.2.0`.
+- Expanded the scoped release from one contract/lane to two contracts and two credential-free lanes.
+- Kept raw terminal and OAuth output in protected records only; the public bundle remains allowlisted local contract evidence.
+
+### Validation
+
+- Full unit discovery, bytecode compilation, package build/install smoke tests,
+  and a fresh credential-free Docker calibration are release gates.
+
 ## [0.1.0] - 2026-08-19
 
 ### Added

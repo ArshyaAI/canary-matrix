@@ -60,7 +60,38 @@ PROBE_REGISTRY = MappingProxyType(
                 "accepted_diagnostics": ("hooks_help", "hooks_command_absent"),
                 "forbidden_diagnostic": "hooks_command_absent",
             }
-        )
+        ),
+        "codex_trust_enter_39487": MappingProxyType(
+            {
+                "argv": ("codex",),
+                "version_argv": ("codex", "--version"),
+                "instruction": (
+                    "Credential-free PTY calibration derived from OpenAI Codex CLI "
+                    "issue #39487. The fixed 80x30 probe starts bare Codex with fresh "
+                    "existing HOME=/tmp and no CODEX_HOME override, waits for the "
+                    "first rendered trust-dialog marker, sends carriage return with "
+                    "zero intentional delay, and observes one bounded post-marker window."
+                ),
+                "accepted_diagnostics": (
+                    "trust_dialog_advanced",
+                    "trust_dialog_stuck",
+                ),
+                "forbidden_diagnostic": "trust_dialog_stuck",
+                "marker": b"Press enter to continue",
+                "input": b"\r",
+                "input_delay_ms": 0,
+                "post_marker_window_ms": 1000,
+                "terminal_columns": 80,
+                "terminal_rows": 30,
+                "package_spec": "@openai/codex",
+                "platform_package_spec": "@openai/codex@{version}-linux-arm64",
+                "platform_package_alias": "@openai/codex-linux-arm64",
+                "platform_binary_relative": (
+                    "vendor/aarch64-unknown-linux-musl/bin/codex"
+                ),
+                "target_identity_prefix": "@openai/codex",
+            }
+        ),
     }
 )
 
@@ -89,6 +120,9 @@ class TargetSpec:
     node_version: str
     os: str
     arch: str
+    platform_npm_integrity: str | None = None
+    wrapper_sha256: str | None = None
+    platform_binary_sha256: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,23 +235,37 @@ def _parse_npm_integrity(value: object, context: str) -> str:
     return integrity
 
 
-def _parse_target(name: str, value: object) -> TargetSpec:
+def _parse_sha256(value: object, context: str) -> str:
+    digest = _string(value, context, max_chars=64)
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ContractError(f"{context}: expected lowercase SHA-256")
+    return digest
+
+
+def _parse_target(
+    name: str, value: object, *, requires_platform_integrity: bool
+) -> TargetSpec:
     context = f"targets.{name}"
     if not isinstance(value, dict):
         raise ContractError(f"{context}: expected table")
-    _strict_keys(
-        value,
-        required={
-            "version",
-            "image_tag",
-            "image_family",
-            "npm_integrity",
-            "node_version",
-            "os",
-            "arch",
-        },
-        context=context,
-    )
+    required = {
+        "version",
+        "image_tag",
+        "image_family",
+        "npm_integrity",
+        "node_version",
+        "os",
+        "arch",
+    }
+    if requires_platform_integrity:
+        required.update(
+            {
+                "platform_npm_integrity",
+                "wrapper_sha256",
+                "platform_binary_sha256",
+            }
+        )
+    _strict_keys(value, required=required, context=context)
     version = _string(value["version"], f"{context}.version", max_chars=80)
     if not _VERSION_RE.fullmatch(version):
         raise ContractError(f"{context}.version: invalid semantic version")
@@ -240,6 +288,25 @@ def _parse_target(name: str, value: object) -> TargetSpec:
     arch = _string(value["arch"], f"{context}.arch", max_chars=40)
     if arch not in {"amd64", "arm64"}:
         raise ContractError(f"{context}.arch: unsupported architecture")
+    platform_npm_integrity = None
+    wrapper_sha256 = None
+    platform_binary_sha256 = None
+    if requires_platform_integrity:
+        if arch != "arm64":
+            raise ContractError(
+                f"{context}.arch: trusted Codex platform package requires arm64"
+            )
+        platform_npm_integrity = _parse_npm_integrity(
+            value["platform_npm_integrity"],
+            f"{context}.platform_npm_integrity",
+        )
+        wrapper_sha256 = _parse_sha256(
+            value["wrapper_sha256"], f"{context}.wrapper_sha256"
+        )
+        platform_binary_sha256 = _parse_sha256(
+            value["platform_binary_sha256"],
+            f"{context}.platform_binary_sha256",
+        )
     return TargetSpec(
         name=name,
         version=version,
@@ -251,6 +318,9 @@ def _parse_target(name: str, value: object) -> TargetSpec:
         node_version=node_version,
         os=os_name,
         arch=arch,
+        platform_npm_integrity=platform_npm_integrity,
+        wrapper_sha256=wrapper_sha256,
+        platform_binary_sha256=platform_binary_sha256,
     )
 
 
@@ -334,11 +404,18 @@ def load_contract(path: str | os.PathLike[str]) -> Contract:
         lane = ExecutionLane(data["execution_lane"])
     except (TypeError, ValueError) as exc:
         raise ContractError("contract.execution_lane: unknown lane") from exc
-    if lane is not ExecutionLane.CONTAINER_NO_HOST_WRITE:
-        raise ContractError("v0.1 requires container_no_host_write")
     probe_kind = _string(data["probe_kind"], "contract.probe_kind", max_chars=80)
     if probe_kind not in PROBE_REGISTRY:
         raise ContractError("contract.probe_kind: no trusted implementation")
+    expected_lane = (
+        ExecutionLane.CONTAINER_PTY_NO_HOST_WRITE
+        if probe_kind == "codex_trust_enter_39487"
+        else ExecutionLane.CONTAINER_NO_HOST_WRITE
+    )
+    if lane is not expected_lane:
+        raise ContractError(
+            f"contract.execution_lane: {probe_kind} requires {expected_lane.value}"
+        )
     timeout_s = data["timeout_s"]
     if (
         not isinstance(timeout_s, int)
@@ -411,8 +488,17 @@ def load_contract(path: str | os.PathLike[str]) -> Contract:
     if not isinstance(targets, dict):
         raise ContractError("contract.targets: expected table")
     _strict_keys(targets, required={"baseline", "candidate"}, context="contract.targets")
-    baseline = _parse_target("baseline", targets["baseline"])
-    candidate = _parse_target("candidate", targets["candidate"])
+    requires_platform_integrity = probe_kind == "codex_trust_enter_39487"
+    baseline = _parse_target(
+        "baseline",
+        targets["baseline"],
+        requires_platform_integrity=requires_platform_integrity,
+    )
+    candidate = _parse_target(
+        "candidate",
+        targets["candidate"],
+        requires_platform_integrity=requires_platform_integrity,
+    )
     if baseline.version == candidate.version:
         raise ContractError("contract.targets: versions must differ")
     if any(
@@ -440,6 +526,21 @@ def load_contract(path: str | os.PathLike[str]) -> Contract:
         "image.recipe_sha256",
     }
     expected_changed = {"target.version", "image.digest", "package.integrity"}
+    if requires_platform_integrity:
+        expected_matched.update(
+            {
+                "probe.input_delay_ms",
+                "probe.input_sha256",
+                "probe.marker_sha256",
+                "probe.post_marker_window_ms",
+                "terminal.columns",
+                "terminal.rows",
+                "package.wrapper_sha256",
+            }
+        )
+        expected_changed.update(
+            {"package.platform_integrity", "package.platform_binary_sha256"}
+        )
     if set(matched_controls) != expected_matched or set(intended_controls) != expected_changed:
         raise ContractError("contract control policy conflicts with v0.1")
 
@@ -454,6 +555,9 @@ def load_contract(path: str | os.PathLike[str]) -> Contract:
         "image.digest",
         "image.attestation_sha256",
         "package.integrity",
+        "package.platform_integrity",
+        "package.wrapper_sha256",
+        "package.platform_binary_sha256",
         "runtime.node",
         "export.sha256",
     }

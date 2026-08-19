@@ -47,6 +47,7 @@ class CapabilityStatus(str, Enum):
 
 class ExecutionLane(str, Enum):
     CONTAINER_NO_HOST_WRITE = "container_no_host_write"
+    CONTAINER_PTY_NO_HOST_WRITE = "container_pty_no_host_write"
     MONITORED_LOCAL = "monitored_local"
 
 
