@@ -277,7 +277,7 @@ def validate_target_create_argv(
         ("--cap-drop", "ALL", "cap_drop"),
         ("--security-opt", "no-new-privileges", "security"),
         ("--pull", "never", "pull"),
-        ("--env", "HOME=/tmp/home", "environment"),
+        ("--env", "HOME=/tmp", "environment"),
         ("--entrypoint", str(contract.probe["argv"][0]), "entrypoint"),
     ):
         if not _pair_present(argv, flag, value):
@@ -304,7 +304,7 @@ def validate_target_create_argv(
         for index, item in enumerate(argv[:-1])
         if item in {"--env", "-e"}
     ]
-    if environments != ["HOME=/tmp/home"]:
+    if environments != ["HOME=/tmp"]:
         errors.append("docker_environment_surface")
     security_options = [
         argv[index + 1]
@@ -369,7 +369,7 @@ def build_target_create_argv(
         "--workdir",
         "/work",
         "--env",
-        "HOME=/tmp/home",
+        "HOME=/tmp",
         "--entrypoint",
         str(contract.probe["argv"][0]),
         attestation.image_digest,
