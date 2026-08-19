@@ -1,0 +1,71 @@
+schema_version = "canary-contract/v0.1"
+id = "gemini-sandbox-26964"
+title = "Gemini CLI sandbox argument-routing regression (#26964)"
+capture_date = "2026-08-19"
+fix_state = "unknown"
+source_urls = ["https://github.com/google-gemini/gemini-cli/issues/26964"]
+source_verified = true
+capability = "sandbox flag reaches the sandbox runtime without reparsing -c"
+systems = ["gemini-cli"]
+credential_mode = "none"
+execution_lane = "container_no_host_write"
+probe_kind = "gemini_sandbox_26964"
+timeout_s = 20
+trials = 1
+
+matched_controls = [
+  "arch",
+  "credential.mode",
+  "execution.policy",
+  "image.base_digest",
+  "image.family",
+  "image.recipe_sha256",
+  "os",
+  "runtime.node",
+]
+intended_changed_controls = [
+  "image.digest",
+  "package.integrity",
+  "target.version",
+]
+evidence_allowlist = [
+  "export.sha256",
+  "image.attestation_sha256",
+  "image.digest",
+  "package.integrity",
+  "runtime.node",
+  "target.diagnostic",
+  "target.exit_code",
+  "target.signal",
+  "target.version",
+]
+redaction_patterns = []
+
+[fixture]
+files = [
+  { path = "probe.json", content = "{\"network\":\"none\",\"probe\":\"gemini-sandbox-26964\"}\n" },
+]
+
+[[assertions]]
+id = "sandbox-flag-not-reparsed"
+kind = "forbid_normalized_diagnostic"
+required = true
+forbidden_normalized = "unknown_argument_c"
+
+[targets.baseline]
+version = "0.41.0"
+image_tag = "canary-matrix/gemini-cli:0.41.0"
+image_family = "canary-gemini-node22-v1"
+npm_integrity = "sha512-WPocdkLEXybkmhBPr/MnebsjW7uJ2kmtVIY+zcSh5dlioD8Vyxz/KFn3SpK4NWirYIWvdP/xJbxIUvu6jg9ezA=="
+node_version = "22"
+os = "ubuntu-24.04"
+arch = "amd64"
+
+[targets.candidate]
+version = "0.42.0"
+image_tag = "canary-matrix/gemini-cli:0.42.0"
+image_family = "canary-gemini-node22-v1"
+npm_integrity = "sha512-LfqKztXeB2hWRVWVmPQdmVnub04LDPoN4fAPep7zCQ84UzLUyFFGymY6Uh25Ffb130Yq20r+hoF/ePdJgz9tbw=="
+node_version = "22"
+os = "ubuntu-24.04"
+arch = "amd64"

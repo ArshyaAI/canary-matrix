@@ -2,33 +2,20 @@ diff --git a/obench/docker_exec.py b/obench/docker_exec.py
 index 7502f65..d993ab1 100644
 --- a/obench/docker_exec.py
 +++ b/obench/docker_exec.py
-@@ -24,15 +24,22 @@ Design:
- stdlib only.
- """
- 
+@@ -26,0 +27 @@ stdlib only.
 +import hashlib
- import json
- import os
+@@ -28,0 +30 @@ import os
 +import re
- import shlex
- import shutil
+@@ -30,0 +33 @@ import shutil
 +import stat as statlib
- import subprocess
+@@ -31,0 +35,2 @@ import subprocess
 +import sys
 +import tarfile
- import tempfile
+@@ -32,0 +38 @@ import tempfile
 +import threading
- import time
- import uuid
- from contextlib import ExitStack
+@@ -35,0 +42 @@ from contextlib import ExitStack
 +from pathlib import PurePosixPath
- from types import SimpleNamespace
- 
- from .auth_persist import AUTH_PERSIST, auth_file_lease, try_persist_auth_file
-@@ -59,6 +66,17 @@ DEFAULT_IMAGE = "openbench-harness:latest"
- _TIMEOUT_GRACE_S = 60
- _DOCKER_CLIENT_POLL_INTERVAL_S = 0.2
- _DOCKER_CLIENT_KILL_GRACE_S = 5
+@@ -61,0 +69,11 @@ _DOCKER_CLIENT_KILL_GRACE_S = 5
 +_OUTPUT_HEAD_BYTES = 64 * 1024
 +_OUTPUT_TAIL_BYTES = 192 * 1024
 +_OUTPUT_STREAM_LIMIT_BYTES = 8 * 1024 * 1024
@@ -40,13 +27,7 @@ index 7502f65..d993ab1 100644
 +_SECURE_COPYOUT_MAX_FILE_BYTES = 16 * 1024 * 1024
 +_SECURE_COPYOUT_MAX_ENTRIES = 2000
 +_SECURE_VOLUME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
- 
- # Per-harness auth surfaces, as $HOME-relative paths. Only those that exist on
- # the host are mounted READ-ONLY into a staging dir; entry.py then copies them
-@@ -312,11 +330,307 @@ def _force_remove_container(name, attempts=3, delay_s=2):
-     return False
- 
- 
+@@ -315,5 +333,301 @@ def _force_remove_container(name, attempts=3, delay_s=2):
 -def _read_tempfile_text(fh):
 -    """Return all bytes currently captured in a temp file as replacement text."""
 -    fh.flush()
@@ -353,13 +334,7 @@ index 7502f65..d993ab1 100644
 +            pipe.close()
 +        except OSError:
 +            pass
- 
- 
- def _stop_process(proc, terminate_grace_s=_DOCKER_CLIENT_KILL_GRACE_S):
-@@ -342,58 +656,108 @@ def _stop_process(proc, terminate_grace_s=_DOCKER_CLIENT_KILL_GRACE_S):
-         pass
- 
- 
+@@ -345,2 +659,5 @@ def _stop_process(proc, terminate_grace_s=_DOCKER_CLIENT_KILL_GRACE_S):
 -def _run_docker_client_with_deadline(cmd, container_name, host_timeout_s,
 -                                     poll_interval_s=_DOCKER_CLIENT_POLL_INTERVAL_S):
 +def _run_docker_client_with_deadline(
@@ -367,11 +342,7 @@ index 7502f65..d993ab1 100644
 +        poll_interval_s=_DOCKER_CLIENT_POLL_INTERVAL_S,
 +        stream_limit_bytes=_OUTPUT_STREAM_LIMIT_BYTES,
 +        line_limit_bytes=_OUTPUT_LINE_LIMIT_BYTES):
-     """Run ``docker run`` without trusting ``Popen.communicate(timeout=...)``.
- 
-     ``subprocess.run(..., capture_output=True, timeout=...)`` enforces its
-     deadline from inside ``communicate()``, while the observed wedge had the
-     runner parked in ``select.poll`` there for far longer than the requested
+@@ -352,5 +669,6 @@ def _run_docker_client_with_deadline(cmd, container_name, host_timeout_s,
 -    timeout. This helper avoids that path entirely: stdout/stderr are redirected
 -    to temp files, and a simple host loop polls the docker client while checking
 -    both a monotonic deadline and a real wall-clock deadline. On expiry it first
@@ -383,12 +354,9 @@ index 7502f65..d993ab1 100644
 +    output-budget exhaustion it first force-removes the named container (the
 +    only reliable way to stop a live ``docker run`` container), then
 +    terminates/kills the client if needed.
-     """
-     proc = None
-     timed_out = False
+@@ -359,0 +678 @@ def _run_docker_client_with_deadline(cmd, container_name, host_timeout_s,
 +    output_budget_exceeded = False
-     start_monotonic = time.monotonic()
-     start_wall = time.time()
+@@ -362,34 +681,16 @@ def _run_docker_client_with_deadline(cmd, container_name, host_timeout_s,
 -    with tempfile.TemporaryFile() as stdout_fh, tempfile.TemporaryFile() as stderr_fh:
 -        try:
 -            proc = subprocess.Popen(
@@ -439,7 +407,7 @@ index 7502f65..d993ab1 100644
 +        proc = subprocess.Popen(
 +            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
 +            stdin=subprocess.DEVNULL,
-         )
+@@ -396,0 +698,63 @@ def _run_docker_client_with_deadline(cmd, container_name, host_timeout_s,
 +        readers = [
 +            threading.Thread(
 +                target=_drain_pipe, args=(proc.stdout, stdout_capture), daemon=True),
@@ -503,18 +471,12 @@ index 7502f65..d993ab1 100644
 +        timed_out=timed_out,
 +        host_wall_time_s=elapsed_s,
 +    )
- 
- 
- def _auth_persist_targets(harness):
-@@ -464,22 +828,61 @@ def build_docker_cmd(harness, workdir, model, timeout_s, adapters_dir, image,
-                      candidate_path=None, base_harness=None,
-                      candidate_auth_files=None, candidate_pass_env=None,
-                      candidate_config_dir=None, candidate_inherit_env=False,
+@@ -467 +831,3 @@ def build_docker_cmd(harness, workdir, model, timeout_s, adapters_dir, image,
 -                     auth_return_dir=None, candidate_persist_auth=False, container_workdir="/work"):
 +                     auth_return_dir=None, candidate_persist_auth=False,
 +                     container_workdir="/work", work_volume=None,
 +                     secure_no_host_write=False):
-     """Assemble the ``docker run`` argv for one cell (pure; unit-testable)."""
+@@ -468,0 +835,19 @@ def build_docker_cmd(harness, workdir, model, timeout_s, adapters_dir, image,
 +    if secure_no_host_write:
 +        if not work_volume or not _SECURE_VOLUME_RE.fullmatch(work_volume):
 +            raise ValueError("secure Docker lane requires a valid run-scoped work volume")
@@ -534,13 +496,10 @@ index 7502f65..d993ab1 100644
 +        if present:
 +            raise ValueError(
 +                "secure Docker lane rejects: " + ", ".join(present))
-     cmd = ["docker", "run", "--rm"]
-     # Bound each cell's CPU quota so co-tenant host load cannot starve a cell
-     # (and cells cannot starve each other). Matches the determinism-cert config.
+@@ -472 +857 @@ def build_docker_cmd(harness, workdir, model, timeout_s, adapters_dir, image,
 -    cell_cpus = os.environ.get("OPENBENCH_CELL_CPUS", "4")
 +    cell_cpus = "2" if secure_no_host_write else os.environ.get("OPENBENCH_CELL_CPUS", "4")
-     if cell_cpus and cell_cpus != "0":
-         cmd += ["--cpus", cell_cpus]
+@@ -474,0 +860,13 @@ def build_docker_cmd(harness, workdir, model, timeout_s, adapters_dir, image,
 +    if secure_no_host_write:
 +        cmd += [
 +            "--memory", "2g",
@@ -554,39 +513,22 @@ index 7502f65..d993ab1 100644
 +            "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=64m",
 +            "--tmpfs", "/root:rw,noexec,nosuid,nodev,size=64m",
 +        ]
-     if container_name:
-         cmd += ["--name", container_name]
-     # Candidate names are display labels, never authority to inherit a stock
-     # adapter's credentials. Config variants pass their trusted base explicitly;
-     # generic manifests intentionally resolve to no stock harness here.
-     effective_harness = base_harness if candidate_path else harness
+@@ -480,0 +879,6 @@ def build_docker_cmd(harness, workdir, model, timeout_s, adapters_dir, image,
 +    if secure_no_host_write:
 +        cmd += [
 +            "--mount", f"type=volume,src={work_volume},dst={container_workdir}",
 +        ]
 +    else:
 +        cmd += ["-v", f"{os.path.abspath(workdir)}:{container_workdir}"]
-     cmd += [
+@@ -482 +885,0 @@ def build_docker_cmd(harness, workdir, model, timeout_s, adapters_dir, image,
 -        "-v", f"{os.path.abspath(workdir)}:{container_workdir}",
-         "-v", f"{os.path.abspath(adapters_dir)}:/bench/adapters:ro",
-         "-v", f"{ENTRY_PATH}:/bench/entry.py:ro",
-         "-v", f"{AUTH_PERSIST_PATH}:/bench/auth_persist.py:ro",
-@@ -532,6 +935,11 @@ def build_docker_cmd(harness, workdir, model, timeout_s, adapters_dir, image,
-         if name not in runner_owned and name in os.environ:
-             cmd += ["-e", name]
-     stock_auth_args = _auth_mount_args(effective_harness)
+@@ -534,0 +938,5 @@ def build_docker_cmd(harness, workdir, model, timeout_s, adapters_dir, image,
 +    if secure_no_host_write and (
 +            stock_auth_args
 +            or _placeholder_env(effective_harness, model)
 +            or _api_key_passthrough(effective_harness, model)):
 +        raise ValueError("secure Docker lane rejects stock auth and API-key surfaces")
-     cmd += stock_auth_args
-     stock_persist = effective_harness in AUTH_PERSIST
-     if auth_return_dir and (stock_persist or candidate_persist_auth):
-@@ -582,6 +990,18 @@ def _parse_result(stdout):
-     return None
- 
- 
+@@ -584,0 +993,12 @@ def _parse_result(stdout):
 +def _bounded_capture_fields(proc):
 +    return {
 +        "stdout_sha256": proc.stdout_sha256,
@@ -599,23 +541,11 @@ index 7502f65..d993ab1 100644
 +    }
 +
 +
- def image_digest(image):
-     """Return RepoDigest or image ID for an already-preflighted docker image."""
-     for fmt in ("{{index .RepoDigests 0}}", "{{.Id}}"):
-@@ -605,7 +1025,8 @@ def run_in_container(harness, instruction, workdir, model, timeout_s,
-                      candidate_config_dir=None, candidate_inherit_env=False,
-                      candidate_spec_bytes=None, candidate_config_contents=None,
-                      candidate_persist_auth=False, container_workdir="/work",
+@@ -608 +1028,2 @@ def run_in_container(harness, instruction, workdir, model, timeout_s,
 -                     container_observer=None):
 +                     container_observer=None, secure_no_host_write=None,
 +                     work_volume_bytes=_SECURE_WORK_VOLUME_BYTES):
-     """Run one cell in a container and return the adapter result dict.
- 
-     Raises ``DockerUnavailable`` (caller falls back to local) when the daemon or
-@@ -622,6 +1043,22 @@ def run_in_container(harness, instruction, workdir, model, timeout_s,
-     auth_leases = {}
-     auth_lease_stack = ExitStack()
-     agent_started = False
+@@ -624,0 +1046,16 @@ def run_in_container(harness, instruction, workdir, model, timeout_s,
 +    work_volume = None
 +    workspace_copyout_status = "not_requested"
 +    if secure_no_host_write is None:
@@ -632,13 +562,7 @@ index 7502f65..d993ab1 100644
 +            result["workspace_copyout_status"] = workspace_copyout_status
 +        return result
 +
-     try:
-         preflight(image)
-         resolved_image = image_digest(image)
-@@ -669,6 +1106,14 @@ def run_in_container(harness, instruction, workdir, model, timeout_s,
-             auth_return_dir = tempfile.mkdtemp(prefix="bench_auth_return_", dir=instr_dir)
-             os.chmod(auth_return_dir, 0o700)
- 
+@@ -671,0 +1109,8 @@ def run_in_container(harness, instruction, workdir, model, timeout_s,
 +        if secure_no_host_write:
 +            work_volume = _new_work_volume_name(harness)
 +            _create_bounded_work_volume(work_volume, work_volume_bytes)
@@ -647,31 +571,13 @@ index 7502f65..d993ab1 100644
 +                container_workdir=container_workdir,
 +            )
 +
-         # Unique name so a hung container (an inner CLI that never exits and
-         # holds the stdout pipe open) can be force-killed on timeout. Killing
-         # the `docker run` client alone does NOT stop the container.
-@@ -687,6 +1132,8 @@ def run_in_container(harness, instruction, workdir, model, timeout_s,
-             auth_return_dir=auth_return_dir,
-             candidate_persist_auth=candidate_persist_auth,
-             container_workdir=container_workdir,
+@@ -689,0 +1135,2 @@ def run_in_container(harness, instruction, workdir, model, timeout_s,
 +            work_volume=work_volume,
 +            secure_no_host_write=secure_no_host_write,
-         )
-         host_env_setup_s = round(time.monotonic() - env_setup_start, 3)
- 
-@@ -708,7 +1155,7 @@ def run_in_container(harness, instruction, workdir, model, timeout_s,
-         if not cleanup_ok:
-             full_output = (proc.stdout or "") + (proc.stderr or "") if "proc" in locals() else ""
-             agent_wall = proc.host_wall_time_s if "proc" in locals() else None
+@@ -711 +1158 @@ def run_in_container(harness, instruction, workdir, model, timeout_s,
 -            return {
 +            result = {
-                 "completed": False,
-                 "error": f"container cleanup failed for {container_name}; "
-                          "container may still be running",
-@@ -720,9 +1167,42 @@ def run_in_container(harness, instruction, workdir, model, timeout_s,
-                 "host_agent_wall_time_s": agent_wall,
-                 "image_digest": resolved_image,
-             }
+@@ -722,0 +1170,33 @@ def run_in_container(harness, instruction, workdir, model, timeout_s,
 +            if "proc" in locals():
 +                result.update(_bounded_capture_fields(proc))
 +            return finish_result(result)
@@ -705,17 +611,10 @@ index 7502f65..d993ab1 100644
 +            }
 +            result.update(_bounded_capture_fields(proc))
 +            return finish_result(result)
-         if proc.timed_out:
-             full_output = (proc.stdout or "") + (proc.stderr or "")
+@@ -725 +1205 @@ def run_in_container(harness, instruction, workdir, model, timeout_s,
 -            return {
 +            result = {
-                 "completed": False,
-                 "error": f"container timeout after {timeout_s}s (+grace); killed",
-                 "output_tail": full_output[-2000:],
-@@ -733,11 +1213,21 @@ def run_in_container(harness, instruction, workdir, model, timeout_s,
-                 "host_agent_wall_time_s": proc.host_wall_time_s,
-                 "image_digest": resolved_image,
-             }
+@@ -735,0 +1216,10 @@ def run_in_container(harness, instruction, workdir, model, timeout_s,
 +            result.update(_bounded_capture_fields(proc))
 +            return finish_result(result)
 +
@@ -726,38 +625,17 @@ index 7502f65..d993ab1 100644
 +                max_total_bytes=work_volume_bytes,
 +            )
 +            workspace_copyout_status = "verified"
- 
-         combined = (proc.stdout or "") + (proc.stderr or "")
-         result = _parse_result(proc.stdout or "")
-         if result is None:
+@@ -740 +1230 @@ def run_in_container(harness, instruction, workdir, model, timeout_s,
 -            return {
 +            result = {
-                 "completed": False,
-                 "error": f"container produced no result sentinel "
-                          f"(exit {proc.returncode})",
-@@ -749,6 +1239,8 @@ def run_in_container(harness, instruction, workdir, model, timeout_s,
-                 "host_agent_wall_time_s": proc.host_wall_time_s,
-                 "image_digest": resolved_image,
-             }
+@@ -751,0 +1242,2 @@ def run_in_container(harness, instruction, workdir, model, timeout_s,
 +            result.update(_bounded_capture_fields(proc))
 +            return finish_result(result)
-         # Record the docker invocation for the results log (adapters record the
-         # inner CLI cmd; we prepend the container wrapper for provenance).
-         result["cmd"] = {"docker": cmd, "adapter_cmd": result.get("cmd")}
-@@ -756,7 +1248,8 @@ def run_in_container(harness, instruction, workdir, model, timeout_s,
-         result["host_env_setup_s"] = host_env_setup_s
-         result["host_agent_wall_time_s"] = proc.host_wall_time_s
-         result["image_digest"] = resolved_image
+@@ -759 +1251,2 @@ def run_in_container(harness, instruction, workdir, model, timeout_s,
 -        return result
 +        result.update(_bounded_capture_fields(proc))
 +        return finish_result(result)
-     except BaseException as exc:
-         if not agent_started:
-             setattr(exc, "bench_env_setup_s", round(time.monotonic() - env_setup_start, 3))
-@@ -764,18 +1257,34 @@ def run_in_container(harness, instruction, workdir, model, timeout_s,
-         raise
-     finally:
-         try:
+@@ -767 +1260,18 @@ def run_in_container(harness, instruction, workdir, model, timeout_s,
 -            if auth_return_dir is not None:
 +            try:
 +                if auth_return_dir is not None:
@@ -777,7 +655,7 @@ index 7502f65..d993ab1 100644
 +                shutil.rmtree(candidate_config_stage, ignore_errors=True)
 +        finally:
 +            if work_volume is not None:
-                 try:
+@@ -769,2 +1279,6 @@ def run_in_container(harness, instruction, workdir, model, timeout_s,
 -                    _persist_returned_auth(
 -                        auth_return_dir, auth_persist_targets, auth_leases
 +                    volume_cleanup_ok = _force_remove_volume(work_volume)
@@ -786,7 +664,7 @@ index 7502f65..d993ab1 100644
 +                if not volume_cleanup_ok:
 +                    cleanup_error = RuntimeError(
 +                        f"secure work volume cleanup failed for {work_volume}"
-                     )
+@@ -772,10 +1286,5 @@ def run_in_container(harness, instruction, workdir, model, timeout_s,
 -                finally:
 -                    shutil.rmtree(auth_return_dir, ignore_errors=True)
 -        finally:
@@ -802,32 +680,39 @@ index 7502f65..d993ab1 100644
 +                        raise cleanup_error
 +                    if hasattr(active_exception, "add_note"):
 +                        active_exception.add_note(str(cleanup_error))
+diff --git a/obench/run.py b/obench/run.py
+index 20ddc6b..0363840 100644
+--- a/obench/run.py
++++ b/obench/run.py
+@@ -2425,3 +2425,13 @@ def main(argv=None):
+-    # Probe each harness's version at most once per invocation (a version()
+-    # probe may spawn a subprocess), then stamp the cached value into every row.
+-    versions = {h: probe_version(h, args.adapters_dir, candidates.get(h)) for h in harnesses}
++    # A manifest version probe may spawn the candidate binary. Docker-mode
++    # runs must never execute that binary on the host: the cell records the
++    # in-container candidate_version (or the image's versions file) instead.
++    # If preflight deliberately homogenized a fallback run to local above,
++    # args.exec_mode is already "local" and the host probe remains appropriate.
++    versions = {
++        harness: (
++            None
++            if args.exec_mode == "docker"
++            else probe_version(harness, args.adapters_dir, candidates.get(harness))
++        )
++        for harness in harnesses
++    }
 diff --git a/obench/tests/test_docker_exec.py b/obench/tests/test_docker_exec.py
 index 6b70086..9b9f4f5 100644
 --- a/obench/tests/test_docker_exec.py
 +++ b/obench/tests/test_docker_exec.py
-@@ -16,13 +16,17 @@ report) since it requires a running daemon and a built image.
- """
- 
- import json
+@@ -18,0 +19,2 @@ import json
 +import hashlib
 +import io
- import os
+@@ -19,0 +22 @@ import os
 +import tarfile
- 
- BENCH_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
- 
- import subprocess
- import sys
- import tempfile
+@@ -25,0 +29 @@ import tempfile
 +import threading
- import unittest
- from types import SimpleNamespace
- from unittest import mock
-@@ -66,6 +70,63 @@ class TestBuildDockerCmd(unittest.TestCase):
-         self.assertIn("/tmp/wd:/app", joined)
-         self.assertIn("-w /app", joined)
- 
+@@ -68,0 +73,57 @@ class TestBuildDockerCmd(unittest.TestCase):
 +    def test_secure_lane_uses_volume_and_fail_closed_resource_policy(self):
 +        cmd = docker_exec.build_docker_cmd(
 +            harness="null", workdir="/tmp/wd", model="none", timeout_s=10,
@@ -885,13 +770,7 @@ index 6b70086..9b9f4f5 100644
 +                    secure_no_host_write=True,
 +                )
 +
-     def test_task_docker_spec(self):
-         with tempfile.TemporaryDirectory() as task:
-             with open(os.path.join(task, "task.toml"), "w", encoding="utf-8") as fh:
-@@ -425,6 +486,41 @@ class TestParseResult(unittest.TestCase):
-         self.assertIsNone(docker_exec._parse_result("just output\n"))
- 
- 
+@@ -427,0 +489,35 @@ class TestParseResult(unittest.TestCase):
 +class TestBoundedStreamCapture(unittest.TestCase):
 +    def test_retains_bounded_head_tail_and_hashes_entire_stream(self):
 +        exceeded = threading.Event()
@@ -927,13 +806,7 @@ index 6b70086..9b9f4f5 100644
 +        self.assertEqual(capture.limit_reason, "line_limit")
 +
 +
- class TestPreflight(unittest.TestCase):
-     def test_raises_when_daemon_down(self):
-         orig = docker_exec.daemon_running
-@@ -492,6 +588,118 @@ class TestPreflight(unittest.TestCase):
-             docker_exec.subprocess.run = orig
- 
- 
+@@ -494,0 +591,112 @@ class TestPreflight(unittest.TestCase):
 +class TestSecureWorkspaceVolume(unittest.TestCase):
 +    def test_create_volume_is_bounded_tmpfs(self):
 +        completed = SimpleNamespace(
@@ -1046,26 +919,14 @@ index 6b70086..9b9f4f5 100644
 +                self.assertEqual(fh.read(), b"fresh")
 +
 +
- class TestContainerCleanup(unittest.TestCase):
-     """run_in_container must remove the container by name on EVERY exit path.
- 
-@@ -512,10 +720,8 @@ class TestContainerCleanup(unittest.TestCase):
-             self.polls_before_exit = polls_before_exit
-             self.terminated = False
-             self.killed = False
+@@ -515,4 +723,2 @@ class TestContainerCleanup(unittest.TestCase):
 -            if stdout_text:
 -                stdout.write(stdout_text.encode("utf-8"))
 -            if stderr_text:
 -                stderr.write(stderr_text.encode("utf-8"))
 +            self.stdout = io.BytesIO(stdout_text.encode("utf-8"))
 +            self.stderr = io.BytesIO(stderr_text.encode("utf-8"))
- 
-         def poll(self):
-             if self.terminated or self.killed:
-@@ -592,6 +798,25 @@ class TestContainerCleanup(unittest.TestCase):
-         self.assertEqual(len(self._rm_calls(calls)), 2)  # watchdog + final sweep
-         self.assertGreaterEqual(result["host_wall_time_s"], 0)
- 
+@@ -594,0 +801,19 @@ class TestContainerCleanup(unittest.TestCase):
 +    def test_output_budget_removes_container_and_kills_client(self):
 +        fake_holder = []
 +
@@ -1085,13 +946,7 @@ index 6b70086..9b9f4f5 100644
 +        self.assertTrue(fake_holder[0].terminated)
 +        self.assertGreaterEqual(len(self._rm_calls(calls)), 1)
 +
-     def test_recovered_final_cleanup_preserves_timeout_result(self):
-         self._patch(lambda cmd, **kwargs: self.FakePopen(
-             cmd, stdout_text="partial", polls_before_exit=10_000, **kwargs))
-@@ -628,6 +853,52 @@ class TestContainerCleanup(unittest.TestCase):
-         self.assertIn("host_wall_time_s", result)
-         self.assertEqual(len(self._rm_calls(calls)), 1)
- 
+@@ -630,0 +856,46 @@ class TestContainerCleanup(unittest.TestCase):
 +    def test_secure_lane_stages_copies_out_and_removes_volume(self):
 +        sentinel = docker_exec.RESULT_SENTINEL + ' {"completed": true}\n'
 +        calls = self._patch(
@@ -1138,6 +993,24 @@ index 6b70086..9b9f4f5 100644
 +                    "null", "probe", workdir, "none", 30,
 +                    "/repo/obench/adapters", secure_no_host_write=True)
 +
-     def test_container_observer_receives_killable_name_before_launch(self):
-         sentinel = docker_exec.RESULT_SENTINEL + ' {"completed": true}\n'
-         calls = self._patch(
+diff --git a/obench/tests/test_run_version_integrity.py b/obench/tests/test_run_version_integrity.py
+index 47b5291..9c03802 100644
+--- a/obench/tests/test_run_version_integrity.py
++++ b/obench/tests/test_run_version_integrity.py
+@@ -94,0 +95 @@ class TestVersionPreflight(unittest.TestCase):
++            self.last_probe_mock = mocks[1]
+@@ -100,0 +102,14 @@ class TestVersionPreflight(unittest.TestCase):
++    def test_docker_lane_never_runs_version_probe_on_host(self):
++        code, emitted, call_count, _stderr = self._run_main(
++            [], ["--exec", "docker"], ([], True)
++        )
++        self.assertEqual((code, emitted, call_count), (0, [False], 1))
++        self.last_probe_mock.assert_not_called()
++
++    def test_local_lane_still_probes_version_once(self):
++        code, emitted, call_count, _stderr = self._run_main([])
++        self.assertEqual((code, emitted, call_count), (0, [False], 1))
++        self.last_probe_mock.assert_called_once_with(
++            "codex", mock.ANY, None
++        )
++
