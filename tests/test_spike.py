@@ -36,6 +36,7 @@ from canary_matrix.openbench_bridge import (
     VerifiedExport,
     bounded_run,
     attest_image,
+    build_target_image,
     build_openbench_argv,
     compare_verified_exports,
     export_sha256,
@@ -611,6 +612,31 @@ class TestOpenBenchBridge(unittest.TestCase):
         with self.assertRaisesRegex(IntegrityError, "pinned by SHA-256"):
             render_image_build_plan(
                 self.contract, "baseline", base_image_digest="node:22"
+            )
+
+    def test_image_builder_uses_generated_only_bounded_context(self):
+        observed = []
+
+        def runner(argv, **kwargs):
+            observed.append((list(argv), kwargs))
+            dockerfile = Path(argv[argv.index("--file") + 1])
+            context = Path(argv[-1])
+            self.assertEqual(list(context.iterdir()), [dockerfile])
+            self.assertEqual(dockerfile.read_bytes(), self.plans["baseline"].dockerfile)
+            return subprocess.CompletedProcess(argv, 0, "built\n", "")
+
+        build_target_image(self.plans["baseline"], runner=runner)
+        argv, kwargs = observed[0]
+        self.assertEqual(argv[:2], ["docker", "build"])
+        self.assertIn("--no-cache", argv)
+        self.assertIn("--memory", argv)
+        self.assertNotIn("--secret", argv)
+        self.assertNotIn("--ssh", argv)
+        self.assertEqual(kwargs["timeout"], 900)
+        with self.assertRaisesRegex(IntegrityError, "Dockerfile digest"):
+            build_target_image(
+                replace(self.plans["baseline"], dockerfile=b"tampered"),
+                runner=runner,
             )
 
     def test_image_attestation_uses_active_no_network_probes(self):

@@ -1070,6 +1070,66 @@ CMD ["gemini", "--version"]
     )
 
 
+def build_target_image(
+    plan: ImageBuildPlan,
+    *,
+    runner=bounded_run,
+) -> subprocess.CompletedProcess[str]:
+    """Build one exact target image from an empty, generated-only context."""
+
+    if hashlib.sha256(plan.dockerfile).hexdigest() != plan.recipe_sha256:
+        raise IntegrityError("image build plan Dockerfile digest mismatch")
+    build_args = dict(plan.build_args)
+    if build_args.get("CANARY_RECIPE_SHA256") != plan.recipe_sha256:
+        raise IntegrityError("image build plan recipe argument mismatch")
+    arch = build_args.get("CANARY_ARCH")
+    if arch not in {"amd64", "arm64"}:
+        raise IntegrityError("image build plan architecture is unsupported")
+    with tempfile.TemporaryDirectory(prefix="canary_image_context_") as context:
+        root = Path(context)
+        dockerfile = root / "Dockerfile"
+        _write_bytes(dockerfile, plan.dockerfile, 0o444)
+        argv = [
+            "docker",
+            "build",
+            "--pull=false",
+            "--no-cache",
+            "--rm=true",
+            "--force-rm",
+            "--platform",
+            f"linux/{arch}",
+            "--memory",
+            "1g",
+            "--memory-swap",
+            "1g",
+            "--cpu-period",
+            "100000",
+            "--cpu-quota",
+            "100000",
+            "--file",
+            str(dockerfile),
+            "--tag",
+            plan.image_tag,
+        ]
+        for key, value in plan.build_args:
+            argv.extend(["--build-arg", f"{key}={value}"])
+        argv.append(str(root))
+        if any(
+            token in " ".join(argv).lower()
+            for token in ("--secret", "--ssh", "docker.sock", "type=bind")
+        ):
+            raise IntegrityError("image build command exposes a forbidden surface")
+        completed = runner(
+            argv,
+            timeout=900,
+            max_output_bytes=8 * 1024 * 1024,
+        )
+        if completed.returncode != 0:
+            detail = (str(completed.stdout) + str(completed.stderr))[-4000:]
+            raise IntegrityError("target image build failed: " + detail)
+        return completed
+
+
 def _secure_image_probe_argv(
     image_digest: str, executable: str, *arguments: str
 ) -> list[str]:
