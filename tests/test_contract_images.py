@@ -203,6 +203,15 @@ class TestContractAndImages(unittest.TestCase):
                 "baseline",
                 replace(attestation, attestation_sha256="0" * 64),
             )
+        with self.assertRaisesRegex(IntegrityError, "unexpected platform"):
+            verify_image_attestation(
+                self.contract,
+                "baseline",
+                replace(
+                    attestation,
+                    platform_package_integrity=self.contract.baseline.npm_integrity,
+                ),
+            )
 
     def test_bounded_control_runner_enforces_timeout_and_output_budget(self):
         completed = bounded_run(

@@ -21,9 +21,9 @@ The repository provides an installable Python distribution. For the checks below
 - the repository checkout; and
 - Docker only for the real container execution lane (the unit tests do not start Docker).
 
-The current contract targets Linux ARM64 containers and the CLI requires at
+The current contracts target Linux ARM64 containers and the CLI requires at
 least 5 GiB of free host disk before image work. Other target architectures are
-not yet a v0.1 claim.
+not yet a v0.2 claim.
 
 Building target images may require npm/Docker network access to obtain pinned assets, unless the required image already exists locally. The target runtime itself is designed without credentials, network access, host binds, or a Docker socket.
 
@@ -49,11 +49,11 @@ The CLI commands are available from the source distribution in this checkout:
 
 ```bash
 canary-matrix version
-canary-matrix check
+canary-matrix check --contract contracts/codex-trust-enter-39487.toml
 canary-matrix run \
-  contracts/gemini-hooks-command-16049.toml \
+  contracts/codex-trust-enter-39487.toml \
   --base-image docker.io/library/node:22-bookworm-slim@sha256:253da19867dd03e2f817f433d7782adefd2a2bac8729fcd4ebc6770665167a24 \
-  --output .canary/runs/hooks-16049
+  --output .canary/runs/codex-trust-enter-39487
 ```
 
 `check` validates the contract, host platform, Docker daemon, and free-disk
@@ -81,7 +81,13 @@ execution failed. The measured result is always the explicit `pair.state` in
 the JSON summary and bundle; an `observed_difference` is evidence, not a CLI
 failure.
 
-The first contract is derived from Gemini CLI issue [#16049](https://github.com/google-gemini/gemini-cli/issues/16049). It compares `0.24.0-preview.0` with `0.42.0` using the `gemini hooks --help` probe and no credentials.
+The Codex contract is derived from official issue
+[#39487](https://github.com/openai/codex/issues/39487). It compares
+`@openai/codex` `0.147.0` with `0.148.0` in a fixed Linux ARM64 80x30 PTY,
+sending carriage return with zero intentional delay when the rendered trust
+dialog marker first appears. The Gemini CLI contract from
+[#16049](https://github.com/google-gemini/gemini-cli/issues/16049) remains
+available as a second calibration case.
 
 ## Output semantics
 
@@ -101,10 +107,10 @@ The public bundle is deterministic and allowlisted. It may contain normalized di
 
 Canary Matrix reports what this contract and execution lane establish—not a universal statement about a vendor, release, or all environments. The current local calibration evidence is:
 
-- baseline `0.24.0-preview.0`: `unsupported` (`hooks_command_absent`);
-- candidate `0.42.0`: `pass` (`hooks_help`);
+- baseline `@openai/codex 0.147.0`: `pass` (`trust_dialog_advanced`);
+- candidate `0.148.0`: `fail` (`trust_dialog_stuck`);
 - pair: `observed_difference`, claim tier `deterministic_cli_delta`;
-- changed controls: `target.version`, `package.integrity`, `image.digest`;
+- changed controls: target version and its pinned package/image identity;
 - mismatched controls: none.
 
 This is local evidence from the stated contract and run, not a universal guarantee.
@@ -113,19 +119,26 @@ This is local evidence from the stated contract and run, not a universal guarant
 
 The trusted control plane owns contract parsing, image attestation, bounded capture, classification, comparison, and public rendering. The target runs in a fail-closed container lane with no credentials, no network, no writable host bind, and no Docker socket. A bounded run-scoped volume is removed and checked before a result is eligible for classification. Integrity failures produce `runner_error` or `not_comparable`, not a convenient target result.
 
+Current scope is two contracts and two credential-free execution lanes:
+`container_no_host_write` for command probes and `container_pty_no_host_write`
+for the fixed Codex terminal probe. Public output omits raw terminal and OAuth
+output and remains local contract evidence, not universal vendor coverage.
+
 Image construction is a separate concern from target execution. Build inputs include exact package integrity and a digest-addressed base image; obtaining pinned assets during the build phase may need npm/Docker network access. The public bundle omits raw output by design.
 
 ## Current scope and non-goals
 
-v0.1 focuses on one narrow, declarative, credential-free contract path and baseline/candidate comparison for AI coding CLIs. It is not a general benchmark framework, multi-agent orchestrator, cloud service, subjective coding benchmark, or adapter marketplace. It does not claim to reproduce every vendor environment or infer a root cause beyond the evidence represented by the contract.
+v0.2 supports two narrow, declarative, credential-free contract paths and
+baseline/candidate comparison for AI coding CLIs. It is not a general benchmark
+framework, multi-agent orchestrator, cloud service, subjective coding benchmark,
+or adapter marketplace. It does not claim to reproduce every vendor environment
+or infer a root cause beyond the evidence represented by a contract.
 
 ## Project status
 
-v0.1.0 is the initial public alpha release. The standalone vertical slice has
-a credential-free calibration proof for Gemini CLI issue #16049, as described
-above. GitHub release assets provide a wheel and source distribution; Canary
-Matrix is not yet published on PyPI and does not make a production-support
-promise.
+v0.2.0 adds the Codex PTY contract while retaining the Gemini command contract.
+GitHub release assets provide a wheel and source distribution; Canary Matrix is
+not yet published on PyPI and does not make a production-support promise.
 
 ## Contributing and security
 

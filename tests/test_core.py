@@ -74,6 +74,13 @@ def observation(
 
 
 class TestRunClassifier(unittest.TestCase):
+    def test_container_pty_lane_is_a_first_class_execution_lane(self):
+        lane = ExecutionLane("container_pty_no_host_write")
+        self.assertIs(lane, ExecutionLane.CONTAINER_PTY_NO_HOST_WRITE)
+        result = classify_run(observation(execution_lane=lane))
+        self.assertEqual(result.execution_lane, lane)
+        self.assertEqual(result.state, RunState.PASS)
+
     def test_integrity_failure_wins_over_target_failure(self):
         result = classify_run(
             observation(

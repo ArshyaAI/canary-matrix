@@ -30,7 +30,7 @@ class TestCli(unittest.TestCase):
     def test_version(self):
         status, out, err = self.invoke(["version"])
         self.assertEqual(status, 0)
-        self.assertEqual(out.strip(), "0.1.0")
+        self.assertEqual(out.strip(), "0.2.0")
         self.assertEqual(err, "")
 
     def test_invalid_contract_is_error(self):
