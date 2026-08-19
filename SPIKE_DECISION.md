@@ -119,3 +119,30 @@ after the host has at least `15 GiB` free and the resource preflight passes.
 
 No repository publication, package release, upstream PR, or public X claim is
 authorized by this decision artifact.
+
+## Standalone follow-through — 2026-08-19
+
+The Standalone Vertical Slice subsequently satisfied its first real,
+credential-free calibration gate without invoking OpenBench:
+
+- Contract: `gemini-hooks-command-16049`
+- Baseline `0.24.0-preview.0`: `unsupported` (`hooks_command_absent`)
+- Candidate `0.42.0`: `pass` (`hooks_help`)
+- Pair: `observed_difference`, claim tier `deterministic_cli_delta`
+- Changed controls: `target.version`, `package.integrity`, `image.digest`
+- Mismatched controls: none
+- Baseline record SHA-256:
+  `acaadb94982414f10f12dd6a0ba8c2b54f14d25d73dd71cd15e761a41a1b9407`
+- Candidate record SHA-256:
+  `e56d1857474aace3f775b9f6b43dda7026a1a98870307c57f741d2bfd3eff1a5`
+- Baseline attestation SHA-256:
+  `bd55e4b724b7a754c8995fee8560025fc63ef602148ef1c5b7a63a2e1fc311fd`
+- Candidate attestation SHA-256:
+  `6773b4e607137339686e2fc548120e6a8253039276445cd33dad0a2a738b95a0`
+- All protected/public bundle file hashes verified independently.
+- Post-run inventory found zero Canary-labeled containers and volumes.
+- Local verification suite: `52/52` tests passed.
+
+The local evidence bundle is intentionally gitignored under
+`.canary/evidence/gemini-hooks-16049-20260819T2041Z/`. Publication remains a
+separate review and release action.
