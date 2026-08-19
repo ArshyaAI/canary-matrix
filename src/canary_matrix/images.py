@@ -217,8 +217,7 @@ def render_image_build_plan(
         or not _IMAGE_DIGEST_RE.fullmatch(base_image_digest)
     ):
         raise IntegrityError("base image must be a registry reference pinned by SHA-256")
-    dockerfile = f'''# syntax=docker/dockerfile:1
-FROM {base_image_digest}
+    dockerfile = f'''FROM {base_image_digest}
 
 ARG CANARY_TARGET_VERSION
 ARG CANARY_NPM_INTEGRITY

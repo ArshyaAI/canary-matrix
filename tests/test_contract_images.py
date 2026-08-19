@@ -141,6 +141,8 @@ class TestContractAndImages(unittest.TestCase):
         self.assertEqual(baseline.dockerfile, candidate.dockerfile)
         self.assertEqual(baseline.recipe_sha256, candidate.recipe_sha256)
         self.assertNotEqual(baseline.build_args, candidate.build_args)
+        self.assertTrue(baseline.dockerfile.startswith(b"FROM "))
+        self.assertNotIn(b"# syntax=", baseline.dockerfile)
         self.assertIn(self.base_digest.encode(), baseline.dockerfile)
         self.assertIn(b"npm SRI mismatch", baseline.dockerfile)
         self.assertNotIn(b"COPY ", baseline.dockerfile)
