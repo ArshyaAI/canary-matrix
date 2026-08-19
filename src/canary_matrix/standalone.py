@@ -35,15 +35,8 @@ from .core import (
     pair_result_to_dict,
     run_result_to_dict,
 )
-from .openbench_bridge import (
-    Contract,
-    ImageAttestation,
-    IntegrityError,
-    assert_public_safe,
-    bounded_run,
-    target_for,
-    verify_image_attestation,
-)
+from .contract import Contract, IntegrityError, assert_public_safe, target_for
+from .images import ImageAttestation, bounded_run, verify_image_attestation
 
 
 RUN_RECORD_SCHEMA_VERSION = "canary-standalone-run/v0.1"

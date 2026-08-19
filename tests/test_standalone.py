@@ -11,11 +11,8 @@ import tempfile
 import unittest
 
 from canary_matrix.core import ClaimTier, PairState, RunState, canonical_json_bytes
-from canary_matrix.openbench_bridge import (
-    ImageAttestation,
-    IntegrityError,
-    load_contract,
-)
+from canary_matrix.contract import IntegrityError, load_contract
+from canary_matrix.images import ImageAttestation
 from canary_matrix.standalone import (
     STANDALONE_POLICY_SHA256,
     build_target_create_argv,
