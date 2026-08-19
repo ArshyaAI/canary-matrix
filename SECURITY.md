@@ -19,7 +19,9 @@ The model does not claim to protect a host from a Docker daemon compromise or a 
 
 ## Supported versions
 
-The current security policy applies to the unreleased v0.1 source snapshot on the default branch and its source-built package. There is no published package or supported release series yet. Support status may change when a release process and compatibility policy are added.
+The current security policy applies to the v0.1.x public alpha series and the
+default branch. Security fixes are provided on a best-effort basis while the
+project remains alpha; older snapshots are not supported.
 
 ## Reporting a vulnerability
 

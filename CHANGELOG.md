@@ -2,7 +2,7 @@
 
 All notable changes to Canary Matrix will be documented here.
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-08-19
 
 ### Added
 
@@ -18,8 +18,8 @@ All notable changes to Canary Matrix will be documented here.
 
 - Unit discovery and bytecode compilation are release gates.
 - Package archives and installed-wheel contract resolution are verified before release.
-- A fresh credential-free Docker calibration is required for the local release candidate.
+- A fresh credential-free Docker calibration passed for the release candidate.
 
 ### Notes
 
-- v0.1 is not released or published. Raw output and protected evidence are intentionally omitted from the public bundle.
+- v0.1.0 is the initial GitHub release. Raw output and protected evidence are intentionally omitted from the public bundle.

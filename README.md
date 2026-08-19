@@ -121,10 +121,11 @@ v0.1 focuses on one narrow, declarative, credential-free contract path and basel
 
 ## Project status
 
-The standalone vertical slice has a local calibration proof for Gemini CLI
-issue #16049, as described above. The CLI and package metadata are implemented,
-while v0.1 remains unreleased; no package publication or production support
-promise is made by this repository snapshot.
+v0.1.0 is the initial public alpha release. The standalone vertical slice has
+a credential-free calibration proof for Gemini CLI issue #16049, as described
+above. GitHub release assets provide a wheel and source distribution; Canary
+Matrix is not yet published on PyPI and does not make a production-support
+promise.
 
 ## Contributing and security
 
