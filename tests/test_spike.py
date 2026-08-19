@@ -34,7 +34,7 @@ from canary_matrix.openbench_bridge import (
     ContractError,
     IntegrityError,
     VerifiedExport,
-    _bounded_run,
+    bounded_run,
     attest_image,
     build_openbench_argv,
     compare_verified_exports,
@@ -195,7 +195,7 @@ class TestPairComparator(unittest.TestCase):
         self.assertEqual(result.state, PairState.NO_OBSERVED_DIFFERENCE)
         self.assertEqual(result.reason_code, PairReason.OBSERVATIONS_MATCH)
 
-    def test_different_observations_are_deterministic_regression(self):
+    def test_different_observations_are_deterministic_delta(self):
         candidate = classify_run(
             observation(
                 run_id="candidate",
@@ -208,7 +208,7 @@ class TestPairComparator(unittest.TestCase):
         )
         result = compare_pair(self.baseline, candidate, PAIR_POLICY)
         self.assertEqual(result.state, PairState.OBSERVED_DIFFERENCE)
-        self.assertEqual(result.claim_tier, ClaimTier.DETERMINISTIC_CLI_REGRESSION)
+        self.assertEqual(result.claim_tier, ClaimTier.DETERMINISTIC_CLI_DELTA)
         self.assertIn("$state", result.differing_observation_keys)
 
     def test_observational_policy_cannot_claim_regression(self):
@@ -633,14 +633,14 @@ class TestOpenBenchBridge(unittest.TestCase):
             )
 
     def test_bounded_control_runner_enforces_output_budget(self):
-        completed = _bounded_run(
+        completed = bounded_run(
             [sys.executable, "-c", "print('ok')"],
             timeout=2,
             max_output_bytes=64,
         )
         self.assertEqual(completed.stdout, "ok\n")
         with self.assertRaisesRegex(IntegrityError, "output budget"):
-            _bounded_run(
+            bounded_run(
                 [sys.executable, "-c", "import os; os.write(1, b'x' * 4096)"],
                 timeout=2,
                 max_output_bytes=32,
@@ -668,13 +668,13 @@ class TestOpenBenchBridge(unittest.TestCase):
         self.assertNotIn("--docker-fallback", argv)
         self.assertNotIn("--allow-version-drift", argv)
 
-    def test_verified_pair_is_deterministic_regression(self):
+    def test_verified_pair_is_deterministic_delta(self):
         baseline, candidate = self._verified_pair()
         self.assertEqual(baseline.run_result.state, RunState.PASS)
         self.assertEqual(candidate.run_result.state, RunState.FAIL)
         pair = compare_verified_exports(self.contract, baseline, candidate)
         self.assertEqual(pair.state, PairState.OBSERVED_DIFFERENCE)
-        self.assertEqual(pair.claim_tier, ClaimTier.DETERMINISTIC_CLI_REGRESSION)
+        self.assertEqual(pair.claim_tier, ClaimTier.DETERMINISTIC_CLI_DELTA)
         self.assertIn("diagnostic", pair.differing_observation_keys)
 
     def test_export_digest_tampering_is_rejected(self):

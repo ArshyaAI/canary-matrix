@@ -144,7 +144,20 @@ _PROBE_REGISTRY = MappingProxyType(
                 "accepted_diagnostics": ("no_error", "unknown_argument_c"),
                 "forbidden_diagnostic": "unknown_argument_c",
             }
-        )
+        ),
+        "gemini_hooks_command_16049": MappingProxyType(
+            {
+                "argv": ("gemini", "hooks", "--help"),
+                "version_argv": ("gemini", "--version"),
+                "instruction": (
+                    "Credential-free command-registration calibration derived from "
+                    "Gemini CLI issue #16049. The fixed probe reads hooks help only; "
+                    "no model prompt, provider credential, or network is permitted."
+                ),
+                "accepted_diagnostics": ("hooks_help", "hooks_command_absent"),
+                "forbidden_diagnostic": "hooks_command_absent",
+            }
+        ),
     }
 )
 
@@ -864,14 +877,15 @@ def _terminate_process_group(process: subprocess.Popen[bytes]) -> None:
         raise IntegrityError("control-plane process resisted SIGKILL") from exc
 
 
-def _bounded_run(
+def bounded_run(
     argv: Sequence[str],
     *,
     cwd: str | os.PathLike[str] | None = None,
     env: Mapping[str, str] | None = None,
     timeout: float = 30,
     max_output_bytes: int = MAX_CONTROL_OUTPUT_BYTES,
-) -> subprocess.CompletedProcess[str]:
+    text: bool = True,
+) -> subprocess.CompletedProcess[str] | subprocess.CompletedProcess[bytes]:
     """Run fixed trusted argv with a wall deadline and bounded combined output."""
 
     if (
@@ -947,11 +961,21 @@ def _bounded_run(
         raise IntegrityError("control-plane command exceeded wall deadline")
     if exceeded.is_set():
         raise IntegrityError("control-plane command exceeded output budget")
+    stdout_bytes = bytes(stdout_buffer)
+    stderr_bytes = bytes(stderr_buffer)
     return subprocess.CompletedProcess(
         list(argv),
         int(process.returncode),
-        bytes(stdout_buffer).decode("utf-8", errors="replace"),
-        bytes(stderr_buffer).decode("utf-8", errors="replace"),
+        (
+            stdout_bytes.decode("utf-8", errors="replace")
+            if text
+            else stdout_bytes
+        ),
+        (
+            stderr_bytes.decode("utf-8", errors="replace")
+            if text
+            else stderr_bytes
+        ),
     )
 
 
@@ -981,7 +1005,7 @@ def render_image_build_plan(
 ) -> ImageBuildPlan:
     """Render the fixed SRI-verifying image recipe without contract code execution."""
 
-    target = _target_for(contract, target_name)
+    target = target_for(contract, target_name)
     if (
         "@sha256:" not in base_image_digest
         or not _IMAGE_DIGEST_RE.fullmatch(base_image_digest)
@@ -998,9 +1022,8 @@ ARG CANARY_ARCH
 ARG CANARY_IMAGE_FAMILY
 ARG CANARY_CONTRACT_SHA256
 ARG CANARY_RECIPE_SHA256
-ARG CANARY_HARNESS_NAME
 
-RUN set -eu; command -v node; command -v npm; command -v python3; command -v tar; command -v bash
+RUN set -eu; command -v node; command -v npm; command -v cat
 RUN set -eu; \\
     npm pack --json "@google/gemini-cli@${{CANARY_TARGET_VERSION}}" > /tmp/canary-pack.json; \\
     node -e 'const fs=require("fs"),c=require("crypto"),p=require("/tmp/canary-pack.json")[0].filename,w=process.env.CANARY_NPM_INTEGRITY,g="sha512-"+c.createHash("sha512").update(fs.readFileSync(p)).digest("base64");if(g!==w){{console.error("npm SRI mismatch");process.exit(72)}}'; \\
@@ -1008,7 +1031,7 @@ RUN set -eu; \\
     npm install --global "./${{tarball}}"; \\
     rm -f "${{tarball}}" /tmp/canary-pack.json
 RUN set -eu; \\
-    node -e 'const fs=require("fs"),v={{}};v[process.env.CANARY_HARNESS_NAME]=process.env.CANARY_TARGET_VERSION;fs.writeFileSync("/etc/openbench-cli-versions.json",JSON.stringify(v)+"\\n")'; \\
+    node -e 'const fs=require("fs"),v={{package:"@google/gemini-cli",version:process.env.CANARY_TARGET_VERSION}};fs.writeFileSync("/etc/canary-matrix-target.json",JSON.stringify(v)+"\\n")'; \\
     gemini --version; node --version
 
 LABEL {_image_label("base_image_digest")}="{base_image_digest}" \\
@@ -1035,7 +1058,6 @@ CMD ["gemini", "--version"]
             "CANARY_IMAGE_FAMILY": target.image_family,
             "CANARY_CONTRACT_SHA256": contract.raw_sha256,
             "CANARY_RECIPE_SHA256": recipe_sha256,
-            "CANARY_HARNESS_NAME": f"canary-{contract.contract_id}",
         }
     )
     return ImageBuildPlan(
@@ -1123,10 +1145,10 @@ def _attestation_payload(attestation: ImageAttestation) -> dict[str, str]:
     }
 
 
-def _verify_image_attestation(
+def verify_image_attestation(
     contract: Contract, target_name: str, attestation: ImageAttestation
 ) -> None:
-    target = _target_for(contract, target_name)
+    target = target_for(contract, target_name)
     expected = {
         "target_name": target_name,
         "contract_sha256": contract.raw_sha256,
@@ -1170,11 +1192,11 @@ def attest_image(
     target_name: str,
     plan: ImageBuildPlan,
     *,
-    runner=_bounded_run,
+    runner=bounded_run,
 ) -> ImageAttestation:
     """Inspect and actively probe a built image before any OpenBench claim."""
 
-    target = _target_for(contract, target_name)
+    target = target_for(contract, target_name)
     if plan.target_name != target_name or plan.image_tag != target.image_tag:
         raise IntegrityError("image build plan targets the wrong arm")
     expected_plan = render_image_build_plan(
@@ -1284,7 +1306,7 @@ def attest_image(
             ).hexdigest(),
         }
     )
-    _verify_image_attestation(contract, target_name, attestation)
+    verify_image_attestation(contract, target_name, attestation)
     return attestation
 
 
@@ -1448,7 +1470,7 @@ def run_openbench_once(
     argv = build_openbench_argv(contract, pack_root, results, image_digest)
     if "--allow-version-drift" in argv or "--docker-fallback" in argv:
         raise IntegrityError("forbidden OpenBench compatibility flag")
-    completed = _bounded_run(
+    completed = bounded_run(
         argv,
         cwd=Path(openbench_root).resolve(),
         env=secure_openbench_environment(tmpdir),
@@ -1548,7 +1570,7 @@ def _target_exit(row: Mapping[str, object]) -> tuple[int | None, int | None, boo
     return None, None, False
 
 
-def _target_for(contract: Contract, name: str) -> TargetSpec:
+def target_for(contract: Contract, name: str) -> TargetSpec:
     if name == "baseline":
         return contract.baseline
     if name == "candidate":
@@ -1567,8 +1589,8 @@ def verify_export(
 ) -> VerifiedExport:
     """Verify, normalize, and classify one immutable OpenBench export."""
 
-    target = _target_for(contract, target_name)
-    _verify_image_attestation(contract, target_name, image_attestation)
+    target = target_for(contract, target_name)
+    verify_image_attestation(contract, target_name, image_attestation)
     expected_image_digest = image_attestation.image_digest
     receipt = verify_generated_pack(contract, pack_root)
     row, row_sha256 = _read_single_jsonl(
@@ -1745,7 +1767,7 @@ _PUBLIC_SECRET_PATTERNS = (
 )
 
 
-def _assert_public_safe(payload: bytes, contract: Contract) -> None:
+def assert_public_safe(payload: bytes, contract: Contract) -> None:
     text = payload.decode("utf-8")
     patterns = list(_PUBLIC_SECRET_PATTERNS)
     patterns.extend(re.compile(pattern) for pattern in contract.redaction_patterns)
@@ -1828,8 +1850,8 @@ def render_public_bundle(
         ]
     )
     markdown_bytes = "\n".join(lines).encode("utf-8")
-    _assert_public_safe(json_bytes, contract)
-    _assert_public_safe(markdown_bytes, contract)
+    assert_public_safe(json_bytes, contract)
+    assert_public_safe(markdown_bytes, contract)
     return json_bytes, markdown_bytes
 
 

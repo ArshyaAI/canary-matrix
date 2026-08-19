@@ -1,8 +1,8 @@
 """Canonical Canary Matrix state and comparison semantics.
 
-This module is deliberately dependency-free. OpenBench adapters, verifier bridges,
-and renderers may produce observations, but only these pure functions may produce
-Canary run or pair verdicts.
+This module is deliberately dependency-free. Execution adapters, verifier
+bridges, and renderers may produce observations, but only these pure functions
+may produce Canary run or pair verdicts.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ class PairState(str, Enum):
 
 class ClaimTier(str, Enum):
     OBSERVATIONAL = "observational"
-    DETERMINISTIC_CLI_REGRESSION = "deterministic_cli_regression"
+    DETERMINISTIC_CLI_DELTA = "deterministic_cli_delta"
 
 
 class CapabilityStatus(str, Enum):
@@ -517,7 +517,7 @@ def compare_pair(
         PairState.OBSERVED_DIFFERENCE,
         PairReason.OBSERVATIONS_DIFFER,
         claim_tier=(
-            ClaimTier.DETERMINISTIC_CLI_REGRESSION
+            ClaimTier.DETERMINISTIC_CLI_DELTA
             if deterministic
             else ClaimTier.OBSERVATIONAL
         ),
@@ -563,4 +563,3 @@ def canonical_json_bytes(value: Mapping[str, object]) -> bytes:
         json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         + "\n"
     ).encode("utf-8")
-
