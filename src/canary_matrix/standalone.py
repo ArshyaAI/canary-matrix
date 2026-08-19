@@ -475,6 +475,62 @@ def _helper_argv(
     return argv
 
 
+def _keeper_argv(
+    *,
+    name: str,
+    run_id: str,
+    image_digest: str,
+    volume_name: str,
+) -> list[str]:
+    """Keep the local-driver tmpfs mounted across sequential helper containers."""
+
+    argv = [
+        "docker",
+        "run",
+        "--detach",
+        "--name",
+        name,
+        "--label",
+        f"io.canary-matrix.run_id={run_id}",
+        "--pull",
+        "never",
+        "--cpus",
+        "0.1",
+        "--memory",
+        "96m",
+        "--memory-swap",
+        "96m",
+        "--pids-limit",
+        "16",
+        "--read-only",
+        "--network",
+        "none",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--stop-timeout",
+        "1",
+        "--mount",
+        f"type=volume,src={volume_name},dst=/work,volume-nocopy",
+        "--entrypoint",
+        "node",
+        image_digest,
+        "-e",
+        "setInterval(() => {}, 2147483647)",
+    ]
+    rendered = " ".join(argv)
+    if (
+        "type=bind" in rendered
+        or "docker.sock" in rendered
+        or "--privileged" in argv
+        or not _pair_present(argv, "--network", "none")
+        or "-v" in argv
+    ):
+        raise IntegrityError("fixture keeper violates containment policy")
+    return argv
+
+
 def _parse_json_object(text: str, code: str) -> dict[str, object]:
     try:
         value = json.loads(text)
@@ -648,8 +704,15 @@ def execute_target(
     stage_name = f"cm-stage-{target_name}-{nonce}"
     before_name = f"cm-before-{target_name}-{nonce}"
     after_name = f"cm-after-{target_name}-{nonce}"
+    keeper_name = f"cm-keeper-{target_name}-{nonce}"
     volume_name = f"cm-work-{target_name}-{nonce}"
-    resource_names = (container_name, stage_name, before_name, after_name)
+    resource_names = (
+        container_name,
+        stage_name,
+        before_name,
+        after_name,
+        keeper_name,
+    )
     fixture_b64, expected_manifest = _fixture_envelope(contract)
     create_argv = build_target_create_argv(
         contract,
@@ -699,6 +762,27 @@ def execute_target(
             code="volume_inspect_failed",
         )
         _verify_volume_inspect(inspected_volume.stdout, volume_name, run_id)
+
+        keeper = _checked_text(
+            runner,
+            _keeper_argv(
+                name=keeper_name,
+                run_id=run_id,
+                image_digest=attestation.image_digest,
+                volume_name=volume_name,
+            ),
+            code="fixture_keeper_start_failed",
+            timeout=20,
+        )
+        if not _CONTAINER_ID_RE.fullmatch(keeper.stdout.strip()):
+            raise StandaloneRunnerError("fixture_keeper_id_invalid")
+        keeper_inspect = _checked_text(
+            runner,
+            ["docker", "container", "inspect", keeper_name],
+            code="fixture_keeper_state_unavailable",
+        )
+        if _container_state(keeper_inspect.stdout).get("Running") is not True:
+            raise StandaloneRunnerError("fixture_keeper_not_running")
 
         staged = _checked_text(
             runner,

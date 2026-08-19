@@ -38,6 +38,7 @@ class FakeDockerRunner:
         self.calls: list[list[str]] = []
         self.volume_exists = False
         self.target_containers: set[str] = set()
+        self.keepers: set[str] = set()
         self.expected_manifest = None
         self.workspace_mutated = False
         self.cleanup_volume_fails = False
@@ -82,6 +83,10 @@ class FakeDockerRunner:
                 self.volume_exists = False
             return self._completed(argv, text=text)
         if argv[:2] == ["docker", "run"]:
+            if "--detach" in argv:
+                name = argv[argv.index("--name") + 1]
+                self.keepers.add(name)
+                return self._completed(argv, stdout="c" * 64 + "\n", text=text)
             script = argv[-1]
             if "CANARY_STAGE_OK" in script:
                 fixture_arg = next(
@@ -126,6 +131,18 @@ class FakeDockerRunner:
             return self._completed(argv, code, output, b"", text=text)
         if argv[:3] == ["docker", "container", "inspect"]:
             name = argv[-1]
+            if name in self.keepers:
+                payload = [
+                    {
+                        "State": {
+                            "Running": True,
+                            "ExitCode": 0,
+                            "OOMKilled": False,
+                            "Error": "",
+                        }
+                    }
+                ]
+                return self._completed(argv, stdout=json.dumps(payload), text=text)
             if name not in self.target_containers:
                 return self._completed(argv, 1, stderr="missing", text=text)
             code = 1 if self.target_name == "baseline" else 0
@@ -143,6 +160,7 @@ class FakeDockerRunner:
         if argv[:3] == ["docker", "rm", "--force"]:
             name = argv[-1]
             self.target_containers.discard(name)
+            self.keepers.discard(name)
             return self._completed(argv, text=text)
         raise AssertionError(f"unexpected Docker command: {argv}")
 
